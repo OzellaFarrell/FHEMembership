@@ -7,15 +7,8 @@ import { SepoliaConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 contract AnonymousMembership is SepoliaConfig {
 
     address public owner;
-    address public pauser;
-    bool public paused;
     uint32 public totalMembers;
     uint32 public membershipIdCounter;
-
-    uint256 private constant MAX_BATCH_SIZE = 100;
-    uint256 private constant RATE_LIMIT_WINDOW = 1 hours;
-    mapping(address => uint256) private lastActionTimestamp;
-    mapping(address => uint256) private actionCount;
 
     struct Member {
         euint32 encryptedMemberId;
@@ -54,27 +47,9 @@ contract AnonymousMembership is SepoliaConfig {
     event MemberLevelUpdated(uint32 indexed memberId, uint32 newLevel);
     event PrivateActivityRecorded(uint32 indexed memberId, uint256 timestamp);
     event MemberDeactivated(uint32 indexed memberId);
-    event Paused(address indexed account);
-    event Unpaused(address indexed account);
-    event PauserChanged(address indexed previousPauser, address indexed newPauser);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not authorized");
-        _;
-    }
-
-    modifier onlyPauser() {
-        require(msg.sender == pauser || msg.sender == owner, "Not authorized to pause");
-        _;
-    }
-
-    modifier whenNotPaused() {
-        require(!paused, "Contract is paused");
-        _;
-    }
-
-    modifier whenPaused() {
-        require(paused, "Contract is not paused");
         _;
     }
 
@@ -84,25 +59,8 @@ contract AnonymousMembership is SepoliaConfig {
         _;
     }
 
-    modifier rateLimited() {
-        uint256 currentWindow = block.timestamp / RATE_LIMIT_WINDOW;
-        uint256 lastWindow = lastActionTimestamp[msg.sender] / RATE_LIMIT_WINDOW;
-
-        if (currentWindow > lastWindow) {
-            actionCount[msg.sender] = 0;
-        }
-
-        require(actionCount[msg.sender] < MAX_BATCH_SIZE, "Rate limit exceeded");
-        actionCount[msg.sender]++;
-        lastActionTimestamp[msg.sender] = block.timestamp;
-        _;
-    }
-
-    constructor(address _pauser) {
-        require(_pauser != address(0), "Invalid pauser address");
+    constructor() {
         owner = msg.sender;
-        pauser = _pauser;
-        paused = false;
         membershipIdCounter = 1;
         levelCounter = 1;
 
@@ -151,7 +109,7 @@ contract AnonymousMembership is SepoliaConfig {
     }
 
     // Register as public member
-    function registerPublicMember() external whenNotPaused rateLimited {
+    function registerPublicMember() external {
         require(walletToMemberId[msg.sender] == 0, "Already registered");
 
         uint32 memberId = membershipIdCounter++;
@@ -184,7 +142,7 @@ contract AnonymousMembership is SepoliaConfig {
     }
 
     // Register as anonymous member using privacy token
-    function registerAnonymousMember(bytes32 anonymousToken) external whenNotPaused rateLimited {
+    function registerAnonymousMember(bytes32 anonymousToken) external {
         require(walletToMemberId[msg.sender] == 0, "Already registered");
         require(!usedAnonymousTokens[anonymousToken], "Token already used");
         require(anonymousToken != bytes32(0), "Invalid token");
@@ -220,7 +178,7 @@ contract AnonymousMembership is SepoliaConfig {
     }
 
     // Record private activity for member
-    function recordPrivateActivity(uint32 activityScore) external onlyActiveMember whenNotPaused rateLimited {
+    function recordPrivateActivity(uint32 activityScore) external onlyActiveMember {
         uint32 memberId = walletToMemberId[msg.sender];
 
         euint32 encryptedMemberId = FHE.asEuint32(memberId);
@@ -349,22 +307,13 @@ contract AnonymousMembership is SepoliaConfig {
         return (totalMembers, levelCounter - 1, membershipIdCounter);
     }
 
-    // Pause control functions
-    function pause() external onlyPauser whenNotPaused {
-        paused = true;
-        emit Paused(msg.sender);
+    // Emergency functions
+    function pauseSystem() external onlyOwner {
+        // Implementation for pausing the system
     }
 
-    function unpause() external onlyPauser whenPaused {
-        paused = false;
-        emit Unpaused(msg.sender);
-    }
-
-    function setPauser(address newPauser) external onlyOwner {
-        require(newPauser != address(0), "Invalid pauser address");
-        address oldPauser = pauser;
-        pauser = newPauser;
-        emit PauserChanged(oldPauser, newPauser);
+    function unpauseSystem() external onlyOwner {
+        // Implementation for unpausing the system
     }
 
     // Generate anonymous registration token (owner only)
