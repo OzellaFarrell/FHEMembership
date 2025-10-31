@@ -1,0 +1,17 @@
+{
+  "*.sol": [
+    "solhint",
+    "prettier --write"
+  ],
+  "*.{js,cjs}": [
+    "eslint --fix --max-warnings=0",
+    "prettier --write"
+  ],
+  "*.ts": [
+    "eslint --fix --max-warnings=0",
+    "prettier --write"
+  ],
+  "*.{json,md,yml,yaml}": [
+    "prettier --write"
+  ]
+}
