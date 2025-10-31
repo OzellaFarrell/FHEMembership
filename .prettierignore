@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+artifacts/
+cache/
+coverage/
+dist/
+build/
+out/
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Generated files
+gas-report.txt
+*.tsbuildinfo
+typechain/
+typechain-types/
+
+# Deployment artifacts
+deployments/*.json
+!deployments/.gitkeep
