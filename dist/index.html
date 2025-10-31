@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anonymous Membership System</title>
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
+  <script type="module" crossorigin src="/assets/index.fs-i_d0o.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index.DIr1Q255.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Anonymous Membership System</h1>
+            <p class="subtitle">Privacy-focused membership management with encrypted data</p>
+        </header>
+
+        <div class="wallet-section">
+            <button id="connectWallet" class="btn-primary">Connect Wallet</button>
+            <div id="walletInfo" class="wallet-info hidden">
+                <span id="walletAddress"></span>
+                <button id="disconnectWallet" class="btn-secondary">Disconnect</button>
+            </div>
+        </div>
+
+        <div id="mainContent" class="main-content hidden">
+            <div class="stats-section">
+                <h2>System Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Total Members</h3>
+                        <span id="totalMembers">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Membership Levels</h3>
+                        <span id="totalLevels">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Your Member ID</h3>
+                        <span id="myMemberId">Not registered</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions-section">
+                <div class="action-card">
+                    <h3>Registration</h3>
+                    <div class="registration-options">
+                        <button id="registerPublic" class="btn-primary">Register as Public Member</button>
+                        <div class="anonymous-registration">
+                            <input type="text" id="anonymousToken" placeholder="Enter anonymous token" />
+                            <button id="registerAnonymous" class="btn-primary">Register as Anonymous Member</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-card">
+                    <h3>Member Activities</h3>
+                    <div class="activity-section">
+                        <input type="number" id="activityScore" placeholder="Activity score (1-1000)" min="1" max="1000" />
+                        <button id="recordActivity" class="btn-primary">Record Private Activity</button>
+                    </div>
+                </div>
+
+                <div class="action-card">
+                    <h3>Membership Management</h3>
+                    <div class="management-section">
+                        <input type="number" id="memberIdToUpdate" placeholder="Member ID to update level" />
+                        <button id="updateLevel" class="btn-primary">Update Member Level</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="member-info-section">
+                <h2>Member Information</h2>
+                <div class="member-details">
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Member Status:</label>
+                            <span id="memberStatus">Not registered</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Membership Type:</label>
+                            <span id="membershipType">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Join Date:</label>
+                            <span id="joinDate">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Activity Count:</label>
+                            <span id="activityCount">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="levels-section">
+                <h2>Membership Levels</h2>
+                <div class="levels-grid">
+                    <div class="level-card bronze">
+                        <h4>Bronze Level</h4>
+                        <p>Entry level membership</p>
+                        <span class="level-requirement">Required Score: 100</span>
+                    </div>
+                    <div class="level-card silver">
+                        <h4>Silver Level</h4>
+                        <p>Intermediate membership with enhanced benefits</p>
+                        <span class="level-requirement">Required Score: 500</span>
+                    </div>
+                    <div class="level-card gold">
+                        <h4>Gold Level</h4>
+                        <p>Premium membership with full access</p>
+                        <span class="level-requirement">Required Score: 1000</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin-section hidden">
+                <h2>Admin Functions</h2>
+                <div class="admin-actions">
+                    <button id="generateToken" class="btn-secondary">Generate Anonymous Token</button>
+                    <div class="token-display hidden">
+                        <label>Generated Token:</label>
+                        <input type="text" id="generatedToken" readonly />
+                    </div>
+
+                    <div class="level-creation">
+                        <h4>Create New Membership Level</h4>
+                        <input type="text" id="levelName" placeholder="Level name" />
+                        <input type="number" id="requiredScore" placeholder="Required score" />
+                        <input type="number" id="benefits" placeholder="Benefits value" />
+                        <button id="createLevel" class="btn-secondary">Create Level</button>
+                    </div>
+
+                    <div class="member-management">
+                        <input type="number" id="memberIdToDeactivate" placeholder="Member ID to deactivate" />
+                        <button id="deactivateMember" class="btn-danger">Deactivate Member</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing transaction...</p>
+        </div>
+
+        <div id="message" class="message hidden"></div>
+    </div>
+
+    <!-- Primary ethers.js CDN from jsDelivr -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.15.0/dist/ethers.umd.min.js"></script>
+
+    <!-- Fallback CDN detection and loading -->
+    <script>
+        // Check if ethers loaded successfully
+        if (typeof ethers === 'undefined') {
+            console.warn('Primary ethers CDN failed, loading fallback...');
+            // Fallback CDN
+            const fallbackScript = document.createElement('script');
+            fallbackScript.src = 'https://unpkg.com/ethers@6.15.0/dist/ethers.umd.min.js';
+            fallbackScript.onload = () => {
+                console.log('Fallback ethers CDN loaded successfully');
+                if (typeof window.initApp === 'function') {
+                    window.initApp();
+                }
+            };
+            fallbackScript.onerror = () => {
+                console.error('Both primary and fallback ethers CDN failed!');
+                document.getElementById('loading').classList.add('hidden');
+                const errorMsg = document.getElementById('message');
+                errorMsg.textContent = 'Failed to load ethers.js library. Please check your internet connection.';
+                errorMsg.className = 'message error';
+                errorMsg.classList.remove('hidden');
+            };
+            document.head.appendChild(fallbackScript);
+        } else {
+            console.log('Primary ethers CDN loaded successfully');
+        }
+    </script>
+
+</body>
+</html>
