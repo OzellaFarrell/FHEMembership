@@ -1,0 +1,76 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Hardhat
+node_modules
+cache
+artifacts
+deployments/*.json
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat coverage
+.coverage_artifacts
+.coverage_cache
+.coverage_contracts
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+build/
+out/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing
+.nyc_output
+
+# Gas reports
+gas-report.txt
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Private keys and sensitive data
+*.pem
+*.key
+private_keys/
+
+# Deployment artifacts (keep example templates only)
+deployments/sepolia-deployment.json
+deployments/mainnet-deployment.json
+deployments/*-simulation.json
+
+# Keep deployment directory structure
+!deployments/.gitkeep
