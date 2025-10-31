@@ -1,8 +1,9 @@
 # 🔐 Privacy-Preserving Membership Platform
 
 > Secure, anonymous membership management powered by Zama FHEVM on Ethereum Sepolia
+ **[Video Demo demo.mp4]** | **[Documentation](TOOLCHAIN_INTEGRATION.md)**
 
-**[Live Demo](#https://fhe-membership.vercel.app/)** | **[Video Demo demo.mp4]** | **[Documentation](TOOLCHAIN_INTEGRATION.md)**
+🌐 **Website**: [https://fhe-membership.vercel.app/](https://fhe-membership.vercel.app/)
 
 Built for the **Zama FHEVM ecosystem** - demonstrating practical privacy-preserving membership applications with production-grade security, DoS protection, and gas optimization.
 
