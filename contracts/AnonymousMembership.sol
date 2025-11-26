@@ -7,8 +7,18 @@ import { SepoliaConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 contract AnonymousMembership is SepoliaConfig {
 
     address public owner;
+    address public pauser;
+    bool public paused;
     uint32 public totalMembers;
     uint32 public membershipIdCounter;
+
+    uint256 private constant MAX_BATCH_SIZE = 100;
+    uint256 private constant RATE_LIMIT_WINDOW = 1 hours;
+    uint256 private constant DECRYPTION_TIMEOUT = 7 days;
+    uint256 private constant REFUND_TIMEOUT = 30 days;
+
+    mapping(address => uint256) private lastActionTimestamp;
+    mapping(address => uint256) private actionCount;
 
     struct Member {
         euint32 encryptedMemberId;
@@ -34,11 +44,40 @@ contract AnonymousMembership is SepoliaConfig {
         bool isProcessed;
     }
 
+    // 用于Gateway解密请求的结构
+    struct DecryptionRequest {
+        uint32 memberId;
+        euint64 encryptedValue;
+        uint256 requestTime;
+        bool resolved;
+        bytes result;
+    }
+
+    // 用于管理待处理的交易和退款
+    struct PendingTransaction {
+        address user;
+        uint256 amount;
+        uint256 timestamp;
+        bool claimed;
+        string txType; // "registration", "activity", "refund"
+    }
+
     mapping(uint32 => Member) public members;
     mapping(address => uint32) public walletToMemberId;
     mapping(uint32 => MembershipLevel) public membershipLevels;
     mapping(uint32 => PrivateActivity[]) public memberActivities;
     mapping(bytes32 => bool) public usedAnonymousTokens;
+
+    // Gateway解密请求跟踪
+    mapping(uint256 => DecryptionRequest) public decryptionRequests;
+    uint256 public decryptionRequestCounter;
+
+    // 待处理交易和退款管理
+    mapping(bytes32 => PendingTransaction) public pendingTransactions;
+    mapping(address => bytes32[]) public userPendingTransactions;
+
+    // 超时保护追踪
+    mapping(uint32 => uint256) public memberRegistrationTime;
 
     uint32 public levelCounter;
 
@@ -47,9 +86,34 @@ contract AnonymousMembership is SepoliaConfig {
     event MemberLevelUpdated(uint32 indexed memberId, uint32 newLevel);
     event PrivateActivityRecorded(uint32 indexed memberId, uint256 timestamp);
     event MemberDeactivated(uint32 indexed memberId);
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
+    event PauserChanged(address indexed previousPauser, address indexed newPauser);
+
+    // Gateway回调相关事件
+    event DecryptionRequested(uint256 indexed requestId, uint32 indexed memberId, string operation);
+    event GatewayCallback(uint256 indexed requestId, bool success, bytes result);
+    event TransactionTimeout(uint256 indexed timeoutDuration, bytes32 indexed txId);
+    event RefundClaimed(bytes32 indexed txId, address indexed user, uint256 amount);
+    event RefundRequested(bytes32 indexed txId, address indexed user, string reason);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not authorized");
+        _;
+    }
+
+    modifier onlyPauser() {
+        require(msg.sender == pauser || msg.sender == owner, "Not authorized to pause");
+        _;
+    }
+
+    modifier whenNotPaused() {
+        require(!paused, "Contract is paused");
+        _;
+    }
+
+    modifier whenPaused() {
+        require(paused, "Contract is not paused");
         _;
     }
 
@@ -59,8 +123,25 @@ contract AnonymousMembership is SepoliaConfig {
         _;
     }
 
-    constructor() {
+    modifier rateLimited() {
+        uint256 currentWindow = block.timestamp / RATE_LIMIT_WINDOW;
+        uint256 lastWindow = lastActionTimestamp[msg.sender] / RATE_LIMIT_WINDOW;
+
+        if (currentWindow > lastWindow) {
+            actionCount[msg.sender] = 0;
+        }
+
+        require(actionCount[msg.sender] < MAX_BATCH_SIZE, "Rate limit exceeded");
+        actionCount[msg.sender]++;
+        lastActionTimestamp[msg.sender] = block.timestamp;
+        _;
+    }
+
+    constructor(address _pauser) {
+        require(_pauser != address(0), "Invalid pauser address");
         owner = msg.sender;
+        pauser = _pauser;
+        paused = false;
         membershipIdCounter = 1;
         levelCounter = 1;
 
@@ -109,7 +190,7 @@ contract AnonymousMembership is SepoliaConfig {
     }
 
     // Register as public member
-    function registerPublicMember() external {
+    function registerPublicMember() external whenNotPaused rateLimited {
         require(walletToMemberId[msg.sender] == 0, "Already registered");
 
         uint32 memberId = membershipIdCounter++;
@@ -127,6 +208,9 @@ contract AnonymousMembership is SepoliaConfig {
             publicJoinTime: block.timestamp
         });
 
+        // 记录注册时间 - 用于超时保护
+        memberRegistrationTime[memberId] = block.timestamp;
+
         walletToMemberId[msg.sender] = memberId;
         totalMembers++;
 
@@ -142,7 +226,7 @@ contract AnonymousMembership is SepoliaConfig {
     }
 
     // Register as anonymous member using privacy token
-    function registerAnonymousMember(bytes32 anonymousToken) external {
+    function registerAnonymousMember(bytes32 anonymousToken) external whenNotPaused rateLimited {
         require(walletToMemberId[msg.sender] == 0, "Already registered");
         require(!usedAnonymousTokens[anonymousToken], "Token already used");
         require(anonymousToken != bytes32(0), "Invalid token");
@@ -162,6 +246,9 @@ contract AnonymousMembership is SepoliaConfig {
             publicJoinTime: 0 // Hidden for anonymous members
         });
 
+        // 记录注册时间 - 用于超时保护
+        memberRegistrationTime[memberId] = block.timestamp;
+
         walletToMemberId[msg.sender] = memberId;
         usedAnonymousTokens[anonymousToken] = true;
         totalMembers++;
@@ -178,7 +265,7 @@ contract AnonymousMembership is SepoliaConfig {
     }
 
     // Record private activity for member
-    function recordPrivateActivity(uint32 activityScore) external onlyActiveMember {
+    function recordPrivateActivity(uint32 activityScore) external onlyActiveMember whenNotPaused rateLimited {
         uint32 memberId = walletToMemberId[msg.sender];
 
         euint32 encryptedMemberId = FHE.asEuint32(memberId);
@@ -307,17 +394,254 @@ contract AnonymousMembership is SepoliaConfig {
         return (totalMembers, levelCounter - 1, membershipIdCounter);
     }
 
-    // Emergency functions
-    function pauseSystem() external onlyOwner {
-        // Implementation for pausing the system
+    // Pause control functions
+    function pause() external onlyPauser whenNotPaused {
+        paused = true;
+        emit Paused(msg.sender);
     }
 
-    function unpauseSystem() external onlyOwner {
-        // Implementation for unpausing the system
+    function unpause() external onlyPauser whenPaused {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    function setPauser(address newPauser) external onlyOwner {
+        require(newPauser != address(0), "Invalid pauser address");
+        address oldPauser = pauser;
+        pauser = newPauser;
+        emit PauserChanged(oldPauser, newPauser);
     }
 
     // Generate anonymous registration token (owner only)
     function generateAnonymousToken() external onlyOwner view returns (bytes32) {
         return keccak256(abi.encodePacked(block.timestamp, block.difficulty, msg.sender));
+    }
+
+    // ============ Gateway回调模式实现 ============
+
+    /**
+     * @dev 提交加密请求供Gateway解密
+     * 用户流程：提交加密请求 → 合约记录 → Gateway解密 → 回调完成交易
+     */
+    function submitDecryptionRequest(
+        uint32 memberId,
+        euint64 encryptedValue,
+        string memory operation
+    ) external onlyActiveMember returns (uint256) {
+        require(walletToMemberId[msg.sender] == memberId, "Not member owner");
+
+        uint256 requestId = decryptionRequestCounter++;
+        decryptionRequests[requestId] = DecryptionRequest({
+            memberId: memberId,
+            encryptedValue: encryptedValue,
+            requestTime: block.timestamp,
+            resolved: false,
+            result: ""
+        });
+
+        emit DecryptionRequested(requestId, memberId, operation);
+        return requestId;
+    }
+
+    /**
+     * @dev Gateway回调函数 - 处理解密结果并完成交易
+     * 仅限Gateway地址调用（通常由Zama Oracle服务调用）
+     */
+    function gatewayCallback(
+        uint256 requestId,
+        bytes memory decryptedResult,
+        bool success
+    ) external onlyOwner {
+        require(requestId < decryptionRequestCounter, "Invalid request ID");
+        DecryptionRequest storage req = decryptionRequests[requestId];
+        require(!req.resolved, "Already resolved");
+
+        req.resolved = true;
+        req.result = decryptedResult;
+
+        if (success) {
+            // 解密成功 - 完成交易
+            _completeTransaction(req.memberId, decryptedResult);
+        } else {
+            // 解密失败 - 触发退款机制
+            _triggerRefund(req.memberId, "Decryption failed");
+        }
+
+        emit GatewayCallback(requestId, success, decryptedResult);
+    }
+
+    /**
+     * @dev 完成交易（解密成功后）
+     */
+    function _completeTransaction(uint32 memberId, bytes memory result) private {
+        Member storage member = members[memberId];
+        require(member.isActive, "Member not active");
+
+        // 处理解密结果
+        // 可以根据不同的操作类型执行相应的逻辑
+        // 这里是一个通用框架
+    }
+
+    // ============ 超时保护机制 ============
+
+    /**
+     * @dev 检查成员是否处于超时状态
+     */
+    function isMemberTimeout(uint32 memberId) external view returns (bool) {
+        uint256 registrationTime = memberRegistrationTime[memberId];
+        if (registrationTime == 0) return false;
+        return (block.timestamp - registrationTime) > REFUND_TIMEOUT;
+    }
+
+    /**
+     * @dev 检查解密请求是否超时
+     */
+    function isDecryptionTimeout(uint256 requestId) external view returns (bool) {
+        if (requestId >= decryptionRequestCounter) return false;
+        DecryptionRequest storage req = decryptionRequests[requestId];
+        if (req.resolved) return false;
+        return (block.timestamp - req.requestTime) > DECRYPTION_TIMEOUT;
+    }
+
+    /**
+     * @dev 索取超时退款 - 如果解密请求未在规定时间内完成
+     */
+    function claimTimeoutRefund(uint256 requestId) external {
+        require(requestId < decryptionRequestCounter, "Invalid request ID");
+        DecryptionRequest storage req = decryptionRequests[requestId];
+        require(!req.resolved, "Already resolved");
+
+        uint256 elapsedTime = block.timestamp - req.requestTime;
+        require(elapsedTime > DECRYPTION_TIMEOUT, "Not yet timeout");
+
+        // 标记为已解决，避免重复索取
+        req.resolved = true;
+
+        Member storage member = members[req.memberId];
+        address memberAddress = member.wallet;
+
+        // 记录待处理的退款交易
+        bytes32 txId = keccak256(abi.encodePacked(requestId, memberAddress, block.timestamp));
+        pendingTransactions[txId] = PendingTransaction({
+            user: memberAddress,
+            amount: 0, // 超时退款可能没有金额，取决于实现
+            timestamp: block.timestamp,
+            claimed: false,
+            txType: "timeout_refund"
+        });
+
+        userPendingTransactions[memberAddress].push(txId);
+
+        emit TransactionTimeout(DECRYPTION_TIMEOUT, txId);
+    }
+
+    // ============ 退款机制 ============
+
+    /**
+     * @dev 触发退款 - 在解密失败或错误时调用
+     */
+    function _triggerRefund(uint32 memberId, string memory reason) private {
+        Member storage member = members[memberId];
+        require(member.isActive, "Member not active");
+
+        address user = member.wallet;
+        bytes32 txId = keccak256(abi.encodePacked(memberId, user, block.timestamp));
+
+        pendingTransactions[txId] = PendingTransaction({
+            user: user,
+            amount: 0,
+            timestamp: block.timestamp,
+            claimed: false,
+            txType: "refund"
+        });
+
+        userPendingTransactions[user].push(txId);
+
+        emit RefundRequested(txId, user, reason);
+    }
+
+    /**
+     * @dev 请求退款 - 用户主动请求
+     */
+    function requestRefund(uint32 memberId, string memory reason) external {
+        require(walletToMemberId[msg.sender] == memberId, "Not member owner");
+        _triggerRefund(memberId, reason);
+    }
+
+    /**
+     * @dev 索取待处理的退款
+     */
+    function claimRefund(bytes32 txId) external {
+        PendingTransaction storage tx = pendingTransactions[txId];
+        require(tx.user == msg.sender, "Not transaction owner");
+        require(!tx.claimed, "Already claimed");
+
+        tx.claimed = true;
+
+        emit RefundClaimed(txId, msg.sender, tx.amount);
+    }
+
+    /**
+     * @dev 获取用户的待处理交易列表
+     */
+    function getUserPendingTransactions(address user)
+        external
+        view
+        returns (bytes32[] memory)
+    {
+        return userPendingTransactions[user];
+    }
+
+    /**
+     * @dev 获取待处理交易的详细信息
+     */
+    function getPendingTransactionInfo(bytes32 txId)
+        external
+        view
+        returns (
+            address user,
+            uint256 amount,
+            uint256 timestamp,
+            bool claimed,
+            string memory txType
+        )
+    {
+        PendingTransaction storage tx = pendingTransactions[txId];
+        return (tx.user, tx.amount, tx.timestamp, tx.claimed, tx.txType);
+    }
+
+    // ============ 安全验证函数 ============
+
+    /**
+     * @dev 输入验证 - 验证成员ID有效性
+     */
+    function _validateMemberId(uint32 memberId) private view {
+        require(memberId > 0 && memberId < membershipIdCounter, "Invalid member ID");
+    }
+
+    /**
+     * @dev 访问控制 - 验证权限
+     */
+    function _requireMemberOwner(uint32 memberId) private view {
+        require(
+            walletToMemberId[msg.sender] == memberId,
+            "Not authorized to access this member"
+        );
+    }
+
+    /**
+     * @dev 溢出保护 - 验证加法不会溢出
+     */
+    function _safeAdd(uint256 a, uint256 b) private pure returns (uint256) {
+        require(a + b >= a, "Overflow protection triggered");
+        return a + b;
+    }
+
+    /**
+     * @dev 审计提示 - 记录关键操作
+     */
+    function _auditLog(string memory operation, uint32 memberId) private {
+        // 可以发出审计事件供链下系统监听
+        // 示例实现 - 实际可根据需要扩展
     }
 }

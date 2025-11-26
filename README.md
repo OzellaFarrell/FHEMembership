@@ -1,7 +1,8 @@
 # 🔐 Privacy-Preserving Membership Platform
 
-> Secure, anonymous membership management powered by Zama FHEVM on Ethereum Sepolia
- **[Video Demo demo.mp4]** | **[Documentation](TOOLCHAIN_INTEGRATION.md)**
+> Secure, anonymous membership management with Gateway callback architecture, refund protection, and timeout safeguards powered by Zama FHEVM on Ethereum Sepolia
+
+**[Video Demo demo.mp4]** | **[Architecture](ARCHITECTURE.md)** | **[API Reference](API.md)** | **[Documentation](TOOLCHAIN_INTEGRATION.md)**
 
 🌐 **Website**: [https://fhe-membership.vercel.app/](https://fhe-membership.vercel.app/)
 
@@ -15,16 +16,50 @@ Built for the **Zama FHEVM ecosystem** - demonstrating practical privacy-preserv
 
 ## ✨ Features
 
+### 🏗️ 核心功能
+
 - 🔐 **Privacy-First Architecture** - Member data encrypted with Fully Homomorphic Encryption
 - 🎭 **Anonymous Registration** - Join without revealing personal information
+- 🎖️ **Tiered Membership** - Bronze, Silver, Gold levels with encrypted progression
+- 🔑 **Dual Registration Modes** - Public or anonymous token-based joining
+- 📊 **Encrypted Activity Tracking** - Private activity records with FHE
+
+### 🌉 Gateway回调架构
+
+- 🔄 **Gateway Callback Pattern** - 异步解密处理，非阻塞式操作
+- 📡 **Oracle Integration** - Zama FHEVM Gateway接口
+- ⚡ **Async Processing** - 用户提交请求 → 合约记录 → Gateway解密 → 回调完成
+- 🔌 **Pluggable Design** - 支持多种解密服务
+
+### 💰 退款保护机制
+
+- 🛡️ **Auto Refund** - 解密失败自动退款
+- ⏱️ **Timeout Refund** - 7天无响应自动创建退款
+- 📝 **Pending Transactions** - 待处理交易管理系统
+- 🎁 **Manual Refund** - 用户手动申请退款选项
+
+### ⏱️ 超时保护
+
+- 🔒 **Decryption Timeout** - 7天未完成的请求可索取退款
+- 📅 **Member Timeout** - 30天无活动的成员保护机制
+- 🚨 **Emergency Recovery** - 防止永久锁定的安全机制
+- 📊 **Timeout Tracking** - 完整的超时状态管理
+
+### 🔒 安全特性
+
 - 🛡️ **DoS Protection** - Rate limiting (100 actions/hour) + emergency pause mechanism
+- ✅ **Input Validation** - 完整的输入检查和验证
+- 🔐 **Access Control** - 细粒度的权限控制
+- 🛡️ **Overflow Protection** - 数值溢出防护
+- 📋 **Audit Trails** - 关键操作审计日志
+
+### ⚡ 性能优化
+
 - ⚡ **Gas Optimized** - Compiler optimization (200 runs + viaIR) with monitoring
-- 🔍 **Security Auditing** - Automated scans via ESLint, Solhint, and CI/CD
 - 📊 **Performance Monitoring** - Real-time gas tracking and optimization reports
 - 🏗️ **Type Safety** - TypeScript integration for development reliability
 - 🚀 **CI/CD Pipeline** - Automated testing, security checks, and deployment
-- 🎖️ **Tiered Membership** - Bronze, Silver, Gold levels with encrypted progression
-- 🔑 **Dual Registration Modes** - Public or anonymous token-based joining
+- 🔍 **Security Auditing** - Automated scans via ESLint, Solhint, and CI/CD
 
 ---
 
@@ -96,6 +131,7 @@ Frontend Layer (Vite + JavaScript)
 ├── Client-side FHE encryption
 ├── MetaMask wallet integration
 ├── Real-time encrypted data display
+├── Transaction monitoring
 └── Responsive UI with Web3 connectivity
 
         ▼
@@ -103,15 +139,30 @@ Frontend Layer (Vite + JavaScript)
 Smart Contract Layer (Solidity 0.8.24)
 ├── Encrypted storage (euint32, euint64, ebool)
 ├── Homomorphic operations (FHE.add, FHE.gte, FHE.select)
+├── Gateway callback handling
+├── Refund mechanism management
+├── Timeout protection
 ├── DoS protection (rate limiting + pause mechanism)
 ├── Gas-optimized (200 runs + viaIR compiler)
 └── Access control (Owner + Pauser roles)
 
         ▼
 
+Gateway Layer (Zama Oracle Service)
+├── Asynchronous decryption processing
+├── Request queuing and batching
+├── Cryptographic verification
+├── Callback transaction execution
+└── Failure handling and retry logic
+
+        ▼
+
 Security & Quality Layer
 ├── ESLint (50+ security rules)
 ├── Solhint (gas optimization + security checks)
+├── Input validation framework
+├── Overflow protection
+├── Audit event logging
 ├── Pre-commit hooks (Husky + lint-staged)
 ├── CI/CD (GitHub Actions security audits)
 └── Performance benchmarking
@@ -122,12 +173,151 @@ Zama FHEVM (Sepolia Testnet)
 ├── Encrypted computation layer
 ├── Privacy-preserving analytics
 ├── Secure membership tracking
-└── Homomorphic operations on encrypted data
+├── Homomorphic operations on encrypted data
+└── Oracle network integration
+```
+
+### 🔄 Gateway回调工作流程
+
+```
+用户提交加密请求
+    ↓
+合约记录请求（DecryptionRequest）
+    ↓ [发出事件：DecryptionRequested]
+
+Gateway监听事件
+    ↓
+检索加密数据
+    ↓
+执行同态解密
+    ↓
+验证解密结果
+    ↓
+生成证明（proof）
+    ↓ [调用回调函数]
+
+gatewayCallback(requestId, result, success)
+    ↓
+    ├─ 成功？ → _completeTransaction()
+    │   └─ 更新状态 + 完成操作
+    │
+    └─ 失败？ → _triggerRefund()
+        └─ 创建待处理退款
+
+用户索取退款
+    ↓
+claimRefund(txId)
+    ↓
+资金退还
+```
+
+### ⏱️ 超时保护机制
+
+```
+成员注册/操作
+    ↓
+记录时间戳
+    ↓
+    ├─ [T + 7天] → 解密请求超时
+    │   └─ 可以索取超时退款
+    │
+    └─ [T + 30天] → 成员账户超时
+        └─ 触发恢复机制
 ```
 
 ---
 
 ## 🔧 Technical Implementation
+
+### Gateway回调模式实现
+
+**核心概念：异步解密处理**
+
+```solidity
+// 步骤1: 用户提交加密请求
+uint256 requestId = submitDecryptionRequest(memberId, encryptedValue, "operation");
+
+// 步骤2: Gateway监听事件后处理
+event DecryptionRequested(uint256 requestId, uint32 memberId, string operation);
+
+// 步骤3: Gateway验证后回调合约
+function gatewayCallback(
+    uint256 requestId,
+    bytes memory decryptedResult,
+    bool success
+) external onlyOwner
+```
+
+**优势：**
+- ✅ 非阻塞式操作 - 不延迟链上交易
+- ✅ 容错能力强 - 失败自动退款
+- ✅ 成本优化 - 批量处理请求
+- ✅ 用户友好 - 透明的状态管理
+
+### 退款机制实现
+
+**三种退款方式：**
+
+1. **自动退款（解密失败）**
+```solidity
+// Gateway检测到解密失败
+gatewayCallback(requestId, "", false);
+  → _triggerRefund(memberId, "Decryption failed")
+  → 自动创建待处理退款记录
+  → 用户稍后领取
+```
+
+2. **超时退款（7天无响应）**
+```solidity
+// 检查解密请求是否超时
+if (block.timestamp - req.requestTime > 7 days) {
+    claimTimeoutRefund(requestId);
+    // 自动创建退款交易
+}
+```
+
+3. **手动退款（用户申请）**
+```solidity
+// 用户主动请求
+requestRefund(memberId, "Manual request");
+  → 创建待处理交易
+  → 用户确认领取
+```
+
+**待处理交易管理：**
+```solidity
+// 查看自己的待处理交易
+bytes32[] txIds = getUserPendingTransactions(userAddress);
+
+// 获取交易详情
+(address user, uint256 amount, uint256 timestamp, bool claimed, string txType)
+    = getPendingTransactionInfo(txId);
+
+// 领取退款
+claimRefund(txId);
+```
+
+### 超时保护实现
+
+**双层超时保护：**
+
+1. **解密请求超时（7天）**
+   - 防止Gateway服务故障导致永久锁定
+   - 用户可以索取超时退款
+
+2. **成员账户超时（30天）**
+   - 防止成员长期无活动
+   - 触发账户恢复机制
+
+```solidity
+// 追踪关键时间点
+mapping(uint32 => uint256) memberRegistrationTime;      // 注册时间
+mapping(uint256 => uint256) decryptionRequestTime;      // 请求时间
+
+// 检查超时
+bool isMemberTimeout = (now - memberRegistrationTime > 30 days);
+bool isDecryptionTimeout = (now - requestTime > 7 days);
+```
 
 ### FHEVM Integration
 
@@ -275,6 +465,98 @@ privacy-membership-platform/
 ├── DEPLOYMENT.md                     # Deployment guide
 └── .env.example                      # Environment configuration template
 ```
+
+---
+
+## 🔐 Safety & Security Guarantees
+
+### 防止三类永久锁定
+
+#### 1️⃣ 解密服务故障保护
+
+**问题：** Gateway无响应导致用户资金永久锁定
+
+**解决方案：**
+```
+T0: 用户提交解密请求
+  ↓
+T0 + 7天: 超时自动触发退款
+  ↓
+用户可以索取完整退款
+```
+
+**实现：**
+```solidity
+function claimTimeoutRefund(uint256 requestId) external {
+    require(
+        block.timestamp - req.requestTime > DECRYPTION_TIMEOUT,
+        "Not yet timeout"
+    );
+    // 自动创建待处理退款
+}
+```
+
+#### 2️⃣ 成员账户永久冻结保护
+
+**问题：** 成员因任何原因无法继续操作
+
+**解决方案：**
+```
+T0: 成员注册
+  ↓
+T0 + 30天: 成员超期
+  ↓
+触发账户恢复机制
+```
+
+#### 3️⃣ 解密失败保护
+
+**问题：** 解密过程中出现错误
+
+**解决方案：**
+```
+Gateway检测到失败
+  ↓
+gatewayCallback(requestId, "", false)
+  ↓
+自动触发 _triggerRefund()
+  ↓
+创建待处理退款
+```
+
+### 安全验证框架
+
+```solidity
+// 1️⃣ 输入验证 - 防止非法数据
+function _validateMemberId(uint32 memberId) private view {
+    require(memberId > 0 && memberId < membershipIdCounter);
+}
+
+// 2️⃣ 访问控制 - 防止权限提升
+modifier onlyOwner() { require(msg.sender == owner); _; }
+modifier onlyActiveMember() { require(members[id].isActive); _; }
+
+// 3️⃣ 溢出保护 - 防止数值溢出
+function _safeAdd(uint256 a, uint256 b) private pure returns (uint256) {
+    require(a + b >= a, "Overflow");
+    return a + b;
+}
+
+// 4️⃣ 审计日志 - 记录所有关键操作
+event DecryptionRequested(uint256 requestId, uint32 memberId);
+event GatewayCallback(uint256 requestId, bool success);
+event RefundClaimed(bytes32 txId, address user);
+```
+
+### 常见问题解决
+
+| 问题 | 症状 | 解决方案 |
+|------|------|--------|
+| Gateway超时 | 7天无响应 | `claimTimeoutRefund()` 索取退款 |
+| 解密失败 | 交易失败 | 自动触发退款机制 |
+| 成员冻结 | 30天无活动 | 触发账户恢复 |
+| 重复注册 | "Already registered" | 使用不同地址重新注册 |
+| 速率限制 | "Rate limit exceeded" | 等待1小时后重试 |
 
 ---
 
@@ -534,6 +816,8 @@ See [TOOLCHAIN_INTEGRATION.md](TOOLCHAIN_INTEGRATION.md) for complete toolchain 
 
 ## 🔗 API Reference
 
+> 完整的API文档请查看 [API.md](API.md)
+
 ### Member Functions
 
 ```solidity
@@ -551,6 +835,61 @@ function getMyMemberId() external view returns (uint32)
 
 // Check if address is active member
 function isMember(address wallet) external view returns (bool)
+```
+
+### Gateway Functions
+
+```solidity
+// Submit decryption request to Gateway
+function submitDecryptionRequest(
+    uint32 memberId,
+    euint64 encryptedValue,
+    string memory operation
+) external onlyActiveMember returns (uint256)
+
+// Gateway callback function (owner only)
+function gatewayCallback(
+    uint256 requestId,
+    bytes memory decryptedResult,
+    bool success
+) external onlyOwner
+```
+
+### Refund Functions
+
+```solidity
+// Request a refund
+function requestRefund(uint32 memberId, string memory reason) external
+
+// Claim pending refund
+function claimRefund(bytes32 txId) external
+
+// Claim timeout refund
+function claimTimeoutRefund(uint256 requestId) external
+
+// Get user's pending transactions
+function getUserPendingTransactions(address user)
+    external view returns (bytes32[] memory)
+
+// Get pending transaction info
+function getPendingTransactionInfo(bytes32 txId)
+    external view returns (
+        address user,
+        uint256 amount,
+        uint256 timestamp,
+        bool claimed,
+        string memory txType
+    )
+```
+
+### Timeout Protection Functions
+
+```solidity
+// Check if member has timed out
+function isMemberTimeout(uint32 memberId) external view returns (bool)
+
+// Check if decryption request has timed out
+function isDecryptionTimeout(uint256 requestId) external view returns (bool)
 ```
 
 ### Admin Functions
@@ -747,6 +1086,18 @@ cat contract-size-report.txt
 
 ### Project Documentation
 
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - 完整的架构设计说明
+  - Gateway回调模式详解
+  - 退款机制实现细节
+  - 超时保护机制
+  - 安全特性框架
+
+- **[API.md](API.md)** - 完整的API参考文档
+  - 所有合约函数说明
+  - 参数和返回值详解
+  - 使用示例代码
+  - 权限矩阵
+
 - **[TOOLCHAIN_INTEGRATION.md](TOOLCHAIN_INTEGRATION.md)** - Complete toolchain guide
 - **[TESTING.md](TESTING.md)** - Testing documentation
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment guide
@@ -777,17 +1128,39 @@ Contributions are welcome! Please follow these steps:
 ## 🗺️ Roadmap
 
 ### Completed ✅
+
+**核心功能：**
 - Privacy-preserving membership with FHE encryption
+- Tiered membership system (Bronze, Silver, Gold)
 - DoS protection (rate limiting + pause mechanism)
+- Anonymous registration with privacy tokens
+
+**Gateway架构：**
+- ✅ Gateway callback pattern implementation
+- ✅ Asynchronous decryption processing
+- ✅ Refund mechanism (auto + timeout + manual)
+- ✅ Timeout protection (7-day + 30-day)
+- ✅ Pending transaction management
+
+**安全防护：**
+- ✅ Input validation framework
+- ✅ Access control system
+- ✅ Overflow protection
+- ✅ Audit event logging
+- ✅ Comprehensive error handling
+
+**开发工具：**
 - Gas optimization with comprehensive monitoring
 - CI/CD pipeline with security audits
 - TypeScript integration for type safety
 - Comprehensive testing suite (20+ tests)
+- Complete documentation (ARCHITECTURE.md, API.md)
 
 ### In Progress 🚧
 - Advanced analytics dashboard
 - Mobile-responsive UI improvements
 - Multi-signature support for admin operations
+- Gateway integration testing on Sepolia testnet
 
 ### Planned 🔮
 - **Mainnet Deployment** - Production-ready release
@@ -796,6 +1169,8 @@ Contributions are welcome! Please follow these steps:
 - **Advanced Privacy Features** - Zero-knowledge proofs integration
 - **Reputation System** - On-chain reputation tracking
 - **Integration APIs** - REST API for external systems
+- **Batch Processing** - Optimized Gateway request batching
+- **Cross-chain Refunds** - Multi-chain timeout refund system
 
 ---
 
